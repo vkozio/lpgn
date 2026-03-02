@@ -1,106 +1,126 @@
 # LPGN: Locality-Preserving Graph Notation
 
-**A graph serialization format aligned with Transformer self-attention**
+**A compact graph notation shaped for Transformer self-attention**
 
-[![Status: Specification](https://img.shields.io/badge/Status-Specification_v1.0-blue.svg)](#)
-[![Domain: LLM & Graph AI](https://img.shields.io/badge/Domain-LLM%20%7C%20Graph%20Reasoning-orange.svg)](#)
+LPGN is a tiny graph language where **graph adjacency is mirrored in token adjacency**.  
+Instead of edge lists and scattered IDs, LPGN uses algebraic primitives (sets, cliques, chains) plus flow operators so that common topologies become short, contiguous fragments of text that transformers can attend to as a whole.
 
-Standard graph serialization formats (JSON, DOT, Cypher) were designed for algorithmic parsers, not for neural sequence models. When such formats are used directly as LLM prompts, connected nodes often become distant in the token sequence, which makes it harder for attention to recover the underlying topology and increases token usage.
-
-Locality-Preserving Graph Notation (LPGN) is a compact, declarative graph notation that makes graph adjacency explicit in the token sequence, with the goal of improving how transformers read and generate graph-structured data.
-
----
-
-## Problem: graph structure vs. token layout
-
-In edge lists and JSON-based representations, node identifiers and edges are typically scattered across the text:
-* indirect references through string IDs (for example, "source" / "target" fields)
-* additional syntax noise around the actual graph elements
-* repeated boilerplate for similar edge patterns
-
-For LLMs, this means that adjacent nodes in the graph can end up far apart in the input sequence, and simple topologies may require many tokens to describe.
+The full formal specification (EBNF, algebraic rules, canonical form) lives in  
+**[`spec/LPGN-Spec.md`](spec/LPGN-Spec.md)**.
 
 ---
 
-## LPGN in one example
+## Why: graph structure vs token layout
 
-Consider a simple business topology: a user submits an order, which is processed by both Risk and Finance in parallel, and then sent to Logistics.
+Most graph formats (JSON node/edge lists, DOT, Cypher) were designed for programmatic parsers:
+- edges are records with string IDs in separate sections
+- similar edge patterns are repeated verbosely
+- additional syntax wraps the actual graph elements
 
-JSON edge-list representation:
+For LLMs this means:
+- adjacent nodes in the graph often land far apart in the token sequence
+- simple topologies require many tokens to describe
+- attention has to reconstruct locality through long-range ID matches instead of reading a dense structural phrase.
+
+LPGN flips this: **you write the topology as one algebraic expression**, read strictly left-to-right.
+
+---
+
+## Core idea in one example
+
+Business topology: a user submits an order, Risk and Finance process it in parallel, then Logistics ships it.
+
+Classic JSON edge list:
 
 ```json
 {
-  "nodes": ["User.Submit", "Risk.Check", "Finance.Hold", "Logistics.Ship"],
+  "nodes": ["Order.Submit", "Risk.Check", "Finance.Hold", "Logistics.Ship"],
   "edges": [
-    {"from": "User.Submit", "to": "Risk.Check"},
-    {"from": "User.Submit", "to": "Finance.Hold"},
+    {"from": "Order.Submit", "to": "Risk.Check"},
+    {"from": "Order.Submit", "to": "Finance.Hold"},
     {"from": "Risk.Check", "to": "Logistics.Ship"},
     {"from": "Finance.Hold", "to": "Logistics.Ship"}
   ]
 }
 ```
 
-Equivalent LPGN representation:
+The same topology in LPGN:
 
 ```lpgn
 @User:Order.Submit -> @System:{Risk.Check, Finance.Hold} -> @Logistics:Ship
 ```
 
-Here, nodes that are adjacent in the topology are also adjacent in the token sequence, and a multi-edge pattern is expressed in a single line.
+Adjacency is now explicit and local: one short fragment captures a bipartite fan-out and fan-in without repeating edge boilerplate.
 
 ---
 
-## Design principles
-
-LPGN follows two main principles:
-
-### 1. Algebraic edge compression
-
-Instead of listing every edge separately, LPGN uses combinatorial constructs (sets, cliques, chains) together with a flow operator to describe families of edges in one expression. Dense or bipartite patterns that would require many separate edge records in JSON can be written as a short algebraic fragment.
-
-### 2. Textual–topological locality
-
-LPGN encourages writing graphs so that adjacent nodes in the topology are also close in the text and can be evaluated left to right. Cycles are closed via explicit back-reference anchors, which avoid long-distance "GOTO"-style references while still allowing cyclic graphs.
-
----
-
-## Quick syntax reference
+## Quick syntax (topology only)
 
 | Operator | Concept | Description | LPGN example |
 | --- | --- | --- | --- |
-| {A, B} | Set | Parallel, disjoint nodes with no internal edges. | System:{Pack, Ship} |
-| [A, B] | Clique | Fully connected internal subgraph. | [Review, Sign] |
-| <A, B> | Chain | Sequential strict path. | <Step1, Step2> |
-| @Actor: | Role | Semantic metadata anchor. | @System:Log |
-| -> | Flow | Directed Cartesian flow from left side to right side. | A -> B |
-| ?(...) | Gateway | Stochastic branching and merging. | ?(0.8 Pass \| 0.2 Fail) |
-| ^Node | BackRef | Topological loop anchor for cyclic graphs. | Fail: ^Order.Draft |
+| `{A, B}` | Set | Parallel, disjoint nodes with no internal edges. | `{Pack, Ship}` |
+| `[A, B]` | Clique | Fully connected internal subgraph. | `[Review, Sign]` |
+| `<A, B>` | Chain | Sequential strict path. | `<Step1, Step2>` |
+| `@Actor:` | Role | Semantic role/actor anchor for a group. | `@System:Log` |
+| `->` | Flow | Directed Cartesian flow from left side to right side. | `A -> B` |
+| `~` | Undirected flow | Symmetric bipartite product, expands to both directions. | `A ~ B` |
+| `?(...)` | Gateway | Weighted branching over groups. | `?(0.8 Pass: X \| 0.2 Fail: Y)` |
+| `^Node` | BackRef | Loop back to a previously defined node. | `Fail: ^Order.Draft` |
+
+Any line starting with `@@` is a **meta directive** and is ignored by the core grammar (you can use this channel for configs or ontologies).
 
 ---
 
-## Intended use and properties
+## A few illustrative examples
 
-* Topology-aware prompting: keeps connected graph elements close in the token sequence, which can make it easier for LLMs to reconstruct local neighborhoods.
-* Compact notation: compresses repeated edge patterns into algebraic constructs, reducing the prompt length for many graph topologies compared to naive edge lists.
-* Canonical form (cLPGN): supports a canonical, lexicographically ordered subset intended for round-tripping between LPGN and edge-list representations.
-* Human-readable: simple enough to be written and reviewed as plain text without specialized graph visualization tools.
+### 1. Process with retry loop
+
+```lpgn
+@@ meta (example "payment-flow" note "stochastic topology with retry")
+@User:Order.Submit
+-> @System:{Risk.Check, Finance.Hold}
+-> ?Validation(0.95 Pass: <Process, Ship> | 0.05 Fail: ^Order.Submit)
+-> @Customer:Notify
+```
+
+Here you see:
+- parallel Risk/Finance processing as a set `{Risk.Check, Finance.Hold}`
+- stochastic gateway with explicit weights
+- a retry loop via `^Order.Submit`.
+
+### 2. Undirected / bipartite relationships
+
+Users and products, treated as an undirected interaction graph:
+
+```lpgn
+{User.Alice, User.Bob}
+~ {Item.Laptop, Item.Phone}
+```
+
+`~` is sugar: it expands to both `Users -> Items` and `Items -> Users` in the underlying edge list, while staying a single symmetric phrase for the model.
+
+### 3. Hyperedge-style relation
+
+Multiple roles accessing multiple resources through a single relation node:
+
+```lpgn
+<{Role.Admin, Role.Manager}, Perm.ReadWrite, {Resource.Billing, Resource.Reports}>
+```
+
+The middle node `Perm.ReadWrite` is a first-class relation; the surrounding sets give you an m:n “hyperedge” without leaving the core language.
 
 ---
 
-## Repository structure
+## What LPGN is (and is not)
 
-| Path | Contents |
-|------|----------|
-| [spec/](spec/) | Canonical specification. See spec/LPGN-Spec.md for the formal grammar, EBNF, and cLPGN. |
-| parsers/ | Reference parsers (Python, Node) that parse LPGN into an AST or edge list. Planned. |
-| converters/ | Converters from other formats to LPGN. Planned. |
+LPGN is:
+- **a topology language**: directed graphs, undirected/bipartite sugar via `~`, back-references, stochastic gateways.
+- **LLM-oriented**: designed so that a short, contiguous span of tokens encodes a meaningful neighborhood in the graph.
+- **canonicalizable**: the spec defines cLPGN with deterministic ordering and biclique factorization for round-tripping with edge lists.
 
-The specification lives in spec/ rather than at the repository root or in docs/: this keeps the root clean as parsers for individual languages are added. The docs/ directory is reserved for project documentation (APIs, contributing guidelines), not the formal language specification.
+LPGN is **not**:
+- a styling or rendering language (no built-in attributes or class blocks in the core).
+- an ontology system: higher-level metadata should live in `@@` meta directives or separate layers.
 
----
-
-## Parsers and converters (planned)
-
-* Parsers: reference implementations in Python and Node that parse LPGN strings to an abstract syntax tree or edge list, and can be published as PyPI and npm packages.
-* Converters to LPGN: for example, from Mermaid and DOT (Graphviz). Additional candidates include GraphML, GEXF, JSON (nodes and edges), CSV edge lists, and Cypher (read-only export for LLM context). Converters may live inside each parser package (for example, lpgn from-mermaid) or in a shared converters/ layer.
+For the exact grammar and algebraic rules, see the **[full specification](spec/LPGN-Spec.md)**.
 
