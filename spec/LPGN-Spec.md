@@ -1,6 +1,13 @@
 ---
 title: LPGN — Locality-Preserving Graph Notation for LLM Self-Attention Optimization
 description: Formal grammar for graph serialization optimized for LLM self-attention; topological primitives, roles, stochastic gateways; locality-preserving.
+domain: research-lpgn
+tags:
+  - graph-notation
+  - llm-optimization
+  - formal-grammar
+  - self-attention
+status: specification
 ---
 
 # LPGN: Locality-Preserving Graph Notation for LLM Self-Attention Optimization
@@ -43,9 +50,16 @@ LPGN is explicitly designed to represent **Directed Graphs** with node labels, s
 * Multigraphs (multiple distinct labeled edges between the exact same ordered pair of nodes; if different semantics are needed, they must be lifted into separate relation nodes).
 * Custom inline edge labels or properties (must be converted to node chains).
 
-LPGN core does not define node attributes, styling blocks, or ontological dictionaries as part of the topology language. Any non-topological metadata (visual styles, domain ontology, configuration) MUST be encoded outside the main Expression and interpreted by downstream tools.
+LPGN core does not define node attributes, styling blocks, or ontological dictionaries as part of the topology language. Any non-topological metadata (visual styles, domain ontology, execution configuration, documentation) MUST be encoded outside the main Expression and interpreted by downstream tools.
 
-To support such metadata in a lightweight and implementation-agnostic way, LPGN reserves **line-level meta directives** starting with `@@`. A meta directive is any single line whose first two characters are `@@`; the remaining payload is opaque to LPGN and MAY use any syntax. The recommended convention is to use an S-Expression-like term for structured data (e.g., `@@ dict (ontology (Class User (kind "actor")))`), but this is not required by the core language. Core LPGN parsing MUST treat all such lines as out-of-band metadata that does not participate in topology or edge expansion; tools MAY consume them as ontological dictionaries, renderer configuration, or other meta-configuration without affecting the graph semantics. Any number of meta directives MAY appear before or after the main Expression; they are not part of the LPGN graph itself.
+To support such metadata in a lightweight and implementation-agnostic way, LPGN reserves **line-level meta directives** starting with `@@`. A meta directive is any single line whose first two characters are `@@`; the remaining payload is opaque to LPGN and MAY use any syntax. Core LPGN parsing MUST treat all such lines as out-of-band metadata that does not participate in topology or edge expansion; tools MAY consume them as ontological dictionaries, renderer configuration, execution-plan annotations, or other meta-configuration without affecting the graph semantics. Any number of meta directives MAY appear before or after the main Expression; they are not part of the LPGN graph itself.
+
+In practice, implementations usually pick a **simple, uniform payload format** for `@@` so it is easy to parse. Recommended patterns:
+
+- `@@ TransferNode {"qty": 7, "cost": 0.1}` – easily distinguishable `DirectiveName JSONPayload` format for tooling
+- `@@ DictOntology (ontology (Class User (kind "actor")))` – `DirectiveName` with an S-expression payload
+
+LPGN does not interpret these payloads; tools MAY define any schemas they need while relying on the fact that `@@` lines are ignored by topology parsing.
 
 ---
 
