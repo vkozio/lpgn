@@ -1,16 +1,6 @@
----
-title: LPGN — Locality-Preserving Graph Notation for LLM Self-Attention Optimization
-description: Formal grammar for graph serialization optimized for LLM self-attention; topological primitives, roles, stochastic gateways; locality-preserving.
-domain: research-lpgn
-tags:
-  - graph-notation
-  - llm-optimization
-  - formal-grammar
-  - self-attention
-status: specification
----
-
 # LPGN: Locality-Preserving Graph Notation for LLM Self-Attention Optimization
+
+**Version:** 0.1.0
 
 **arXiv Category:** cs.CL (Computation and Language), cs.AI (Artificial Intelligence), cs.DS (Data Structures and Algorithms)
 
@@ -74,7 +64,7 @@ LPGN does not interpret these payloads; tools MAY define any schemas they need w
 | `@Actor:` | Role Anchor | Binds an actor to a node/group | `@System:Log` |
 | `->` | Flow | Directed Cartesian product | `A -> B` |
 | `~` | Undirected Flow | Symmetric bipartite product (expands to `A -> B` and `B -> A`) | `A ~ B` |
-| `?(...)` | Gateway | Weighted branching (Float = weight/metric per branch) | `?(0.8 A | 0.2 B)` |
+| `?Name(...)` | Gateway | Weighted branching with a named gateway and labeled branches | `?Validation(0.8 Pass: A | 0.2 Fail: B)` |
 | `^Node` | Back-Reference | Topological loop anchor | `Fail: ^Draft` |
 
 ---
@@ -94,7 +84,7 @@ Clique      ::= "[" NodeList "]"
 Chain       ::= "<" NodeList ">"
 Gateway     ::= "?" Identifier "(" WeightedBranch ( "|" WeightedBranch )* ")"
 WeightedBranch ::= Float Identifier ":" Group
-BackRef     ::= "^" Identifier
+BackRef     ::= "^" Node
 NodeList    ::= Node ( "," Node )*
 Node        ::= Identifier ( "." Identifier )?
 RoleAnchor  ::= "@" Identifier ":"
@@ -110,7 +100,7 @@ In Gateway, each WeightedBranch is Float (weight/metric) plus branch label and G
 
 ## 5. Algebraic Expansion Rules (Unfolding)
 
-Parsing an LPGN string into a standard edge list is an O(n) operation over the input length, though the generated edge count can reach O(n²). Expansion relies on set theory. Let S1, S2, and S3 be sets of nodes produced by the respective grammar groups.
+Parsing an LPGN string is an O(n) operation over the input length; expanding it into a standard edge list is O(n + |E|), where the number of generated edges |E| can reach O(n²) in the worst case. Expansion relies on set theory. Let S1, S2, and S3 be sets of nodes produced by the respective grammar groups.
 
 * **Set `{A, B, C}`:** Generates vertices but zero internal edges.
 
@@ -122,7 +112,7 @@ Parsing an LPGN string into a standard edge list is an O(n) operation over the i
 
 * **Undirected Flow `S1 ~ S2`:** Generates a symmetric bipartite Cartesian product, equivalent to `S1 -> S2` plus `S2 -> S1`. Implementations may store undirected edges explicitly or as pairs of directed edges; canonicalization MUST treat `S1 ~ S2` and `S2 ~ S1` as equivalent.
 
-* **Back-Reference `^Id`:** Resolves to the first node with that identifier appearing earlier in the left-to-right topology. If none exists, the graph is invalid (Unresolved Reference).
+* **Back-Reference `^Node`:** Resolves to the first node with that name (including dotted forms like `Order.Submit`) appearing earlier in the left-to-right topology. If none exists, the graph is invalid (Unresolved Reference).
 
 ---
 
